@@ -6,3 +6,4 @@ data/*
 *Rproj
 .DS_Store
 scripts/*_cache
+output/*_files
