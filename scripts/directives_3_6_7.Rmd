@@ -12,7 +12,6 @@ knit: (function(input,...) {
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,message=FALSE, warning=FALSE)
 
-
 # ----------- PRELIMINARIES ---------------
 # load needed packages 
 library(kableExtra)
@@ -98,7 +97,7 @@ covariates <- c("age", "donorage",
 
 # readable names of all baseline variables of interest
 nice_names <- c("Age",  "Donor Age", 
-                "Sex", "Donor Sex",
+                "Sex (Male)", "Donor Sex (Male)",
                 "CMV", "Donor CMV",
                 "Wait Time for Transplant", "Disease Group",
                 "FAB Group", "Prophylactic Use\nof Methotrexate")
@@ -392,15 +391,17 @@ get_model_summary <- function(var, nice_name, model) {
                  label=setNames(
                    list(nice_name, paste0("tt(", nice_name, ")")), 
                    c(var, paste0("tt(",var, ")"))))
-  }
-  
-  model_summary <- tbl_regression(model, exponentiate=TRUE,
+  } else {
+     model_summary <- tbl_regression(model, exponentiate=TRUE,
                                   conf.level=.9,
                  estimate_fun=label_style_sigfig(digits=3),
                  pvalue_fun = label_style_pvalue(digits = 3),
                  label=setNames(
                    list(nice_name, paste0("tt(", nice_name, ")")), 
                    c(var, paste0("tt(",var, ")"))))
+  }
+  
+ 
   return(model_summary)
   
 }
@@ -500,8 +501,11 @@ model_list[["mtx"]] <- coxph(
 
 ```
 
-```{r}
+```{r univar-model-table}
 
+#---------------------------------------------------------------------------
+# create combined table with HR's for each univariable model 
+#---------------------------------------------------------------------------
 model_summary_list <- pmap(list(var=covariates,
                                 nice_name=nice_names, 
                                 model=model_list),
@@ -597,13 +601,8 @@ bmt <- bmt %>%
            levels=c("CMV Negative->CMV Negative",
                     "CMV Negative->CMV Positive",
                     "CMV Positive->CMV Negative",
-                    "CMV Positive->CMV Positive"))
-        #  sex_mismatch = ifelse(sex_mismatch == "Female->Male", 1, 0),
-        # cmv_mismatch = ifelse(cmv_mismatch ==
-        #                         "CMV Negative->CMV Positive",
-        #                       1,0)
-        )
-
+                    "CMV Positive->CMV Positive")))
+       
 ```
 
 ## Perfect Collinearity by Hospital
@@ -817,14 +816,15 @@ broom::tidy(model,
   theme_c(axis.text.y=element_text(size=12, hjust=1)) +
   labs(y="", x= "Hazard Ratio")
 
-gtsummary::tbl_regression(model,conf.level=.9,exponentiate=TRUE)
+gtsummary::tbl_regression(model,conf.level=.9,exponentiate=TRUE,
+                           pvalue_fun = label_style_pvalue(digits = 3))
 
 
 # ggsave(here("directive_6.jpeg"))
 
 ```
 
-```{r boot-surv,eval=TRUE}
+```{r boot-surv,eval=TRUE, cache=TRUE}
 
 #--------------------------------------------------------
 # obtain bootstrapped differences in survival curves
@@ -941,6 +941,9 @@ To evaluate whether there is association between the recovery of normal platelet
 
 ## Is recovery of normal platelet levels associated with improved disease-free survival?
 
+
+### Fully Adjusted Model
+ 
 ```{r}
 
 # Age, fab classification, wait time until transplant, donor age, donor sex, cmv, sex, donor cmv, disease group
@@ -970,11 +973,14 @@ gtsummary::tbl_regression(model,
                                      # waittime="Wait Time"
                                      ),
                           exponentiate=TRUE,
-                          conf.level=.9)
+                          conf.level=.9,
+                           pvalue_fun = label_style_pvalue(digits = 3))
 
 
 
 ```
+
+### Marginal Model
 
 
 ```{r}
@@ -994,7 +1000,8 @@ gtsummary::tbl_regression(model,
                                        # waittime="Wait Time"
                                        ),
                             exponentiate=TRUE,
-                            conf.level=.9)
+                            conf.level=.9,
+                           pvalue_fun = label_style_pvalue(digits = 3))
 
 
 ```
@@ -1030,14 +1037,12 @@ dat <- dat %>%
 
 bmt_copy <- bmt
 
-
-
 odds_mod <- prop.odds.subdist(Event(tdfs, cause) ~ plat, 
          cause = 2,
          data=dat)
 
 odds_mod <- prop.odds.subdist(Event(tdfs, cause) ~ 
-                           age + fab +# waittime + 
+                           age + # fab+ waittime+# fab +# waittime + 
          cmv_mismatch  + disgroup  +donorage + sex_mismatch +
            plat, 
          cause = 2,
@@ -1101,7 +1106,8 @@ gtsummary::tbl_regression(model,
                                      cmv="Patient CMV",
                                      waittime="Wait Time"),
                           exponentiate=TRUE,
-                          conf.level=.9)
+                          conf.level=.9,
+                           pvalue_fun = label_style_pvalue(digits = 3))
 
 ```
 
@@ -1199,24 +1205,4 @@ surv_est_dir6 %>%
 ```
 
 
-```{r,eval=FALSE}
-
-
-
-
-
-model <- coxph(Surv(ta, deltaa) ~mtx + age + donorage +
-                 waittime + fab + 
-                 donormale + male +
-                 cmv + donorcmv +
-                 disgroup, data=bmt
-               )
-
-
-
-tbl_regression(model)
-
-
-
-```
 
