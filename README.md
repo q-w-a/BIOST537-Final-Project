@@ -10,7 +10,7 @@ Data were obtained from a multicenter cohort of 137 patients enrolled between Ma
 ## File Descriptions: 
 
 * `scripts` directory holds all code
-  * `directives_3_6_7.Rmd` -
+  * `directives_3_6_7.Rmd` - all analyses for directives 3, 6, and 7 
 * `output` holds knitted results of code
   * `directives_3_6_7.html` - output from `directives_3_6_7.Rmd` 
 
