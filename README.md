@@ -7,6 +7,8 @@ This repository organizes our analyses on identifying clinical and transplant-re
 
 Data were obtained from a multicenter cohort of 137 patients enrolled between March 1, 1984 and June 30, 1989 across four hospitals. All patients were followed prospectively from the date of transplantation until death or the administrative end of follow-up. All patients were treated with a (radiation-free) conditioning regimen with oral Busulfan and intravenous cyclophosphamide.
 
+To run the code in the scripts directory, we assume `bmt.csv` is in a `data` directory in the same parent directory as the `scripts` and `output` subdirectories.
+
 ## File Descriptions: 
 
 * `scripts` directory holds all code
