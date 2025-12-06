@@ -139,165 +139,9 @@ bmt <- read_csv(here("data/bmt.csv")) %>%
 
 ```
 
-```{r,eval=FALSE}
+## Survival Curves
 
-# get kaplan-meier curve by a continuous variable 
-# by splitting the continuous variable into two groups
-# by whether the value of the variable was above or below 
-# the median 
-get_continuous_km <- function(var, nice_name) {
-  
-  # calculate median of the continuous variable of interest 
-  median_var <- bmt[[var]] %>% median(na.rm=TRUE)
-  
-  bmt_w_thresh <- bmt %>% mutate(
-    !!sym(var) := ifelse(!!sym(var) > median_var,
-                          paste0("> ", median_var),
-                          paste0("≤ ", median_var)))
-  
-  # Fit model with thresholded version of continuous covariate
-  fit <- survfit(as.formula(paste0("Surv(tdfs, deltadfs) ~ ", var)),
-     data = bmt_w_thresh)
-  
-  # kaplan-meier plot 
-  ggsurvfit(fit)$data %>%
-    select(estimate, strata, time, conf.high, conf.low) %>%
-    dplyr::arrange(strata, time) |>
-    dplyr::group_by(strata) |>
-    dplyr::mutate(
-    xmin = time,
-    xmax = dplyr::lead(time)   # next step’s start
-    ) |>
-    dplyr::ungroup() |>
-    dplyr::filter(!is.na(xmax))  %>% 
-    mutate(strata=gsub(paste0(var,"="), 
-                       nice_name,
-                       strata)) %>%
-    ggplot(aes(x=time, y=estimate,color=strata,
-               fill=strata)) +
-    geom_step() + 
-    geom_rect(aes(xmin = xmin, xmax = xmax, 
-                ymin = conf.low, ymax = conf.high,
-                fill=strata),
-              alpha = 0.15,
-              inherit.aes=FALSE) +
-    theme_c() +
-    viridis::scale_color_viridis(discrete=TRUE,
-                                 option="mako", end=.8, begin=.2) +
-    viridis::scale_fill_viridis(discrete=TRUE,
-                                 option="mako", end=.8, begin=.2) +
-    labs(y="Disease-Free Survival", x= "Time (Days)",
-          title=paste0("By ", nice_name),
-         fill="", color="") +
-    scale_x_continuous(n.breaks=7)
-}
-
-
-
-# get kaplan meier curve by a discrete variable 
-get_discrete_km <- function(var, nice_name) {
-  
-  # Fit model with discrete covariate
-  fit <- survfit(as.formula(paste0("Surv(tdfs, deltadfs) ~ ", var)),
-     data = bmt)
-  
-  # kaplan-meier plot 
-  ggsurvfit(fit)$data %>%
-    select(estimate, strata, time, conf.high, conf.low) %>%
-    dplyr::arrange(strata, time) |>
-    dplyr::group_by(strata) |>
-    dplyr::mutate(
-    xmin = time,
-    xmax = dplyr::lead(time)   # next step’s start
-  ) |>
-    mutate(strata=gsub(paste0(var,"="), 
-                       "",
-                       strata)) %>%
-    ggplot(aes(x=time,y=estimate,color=strata)) +
-    geom_step() +
-    geom_rect(aes(xmin = xmin, xmax = xmax, 
-                ymin = conf.low, ymax = conf.high,
-                fill=strata),
-              alpha = 0.15,
-              inherit.aes=FALSE) +
-    theme_c() +
-    viridis::scale_color_viridis(discrete=TRUE,
-                                 option="magma", end=.8, begin=.3) +
-    viridis::scale_fill_viridis(discrete=TRUE,
-                                 option="magma", end=.8, begin=.3) +
-    labs(y="Disease-Free Survival", x= "Time (Days)",
-         title=paste0("By ", nice_name), color="", fill="") +
-    scale_x_continuous(n.breaks=7)
-  
-}
-
-
-get_continuous_survival_curve <- function(var, nice_name) {
-  
-  mod <- coxph(as.formula(paste0("Surv(tdfs, deltadfs) ~ ", var)),
-     data = bmt)
-  
-  newdat <- tibble(
-    !!var := quantile(bmt[[var]],probs= c(.25,.75), na.rm=TRUE))
-  
-  
-  est_by_group <- pmap_df(newdat, ~{
-    ggsurvfit(survfit(mod, newdata =tibble(!!var := .x)))$data %>%
-      mutate(strata = .x)}
-    )
-
-  est_by_group %>%
-    select(estimate, strata, time, conf.high, conf.low) %>%
-    dplyr::arrange(strata, time) |>
-    dplyr::group_by(strata) |>
-    dplyr::mutate(
-    xmin = time,
-    xmax = dplyr::lead(time)   # next step’s start
-  ) |>
-    mutate(strata=gsub(paste0(var,"="), 
-                       "",
-                       strata)) %>%
-    ggplot(aes(x=time,y=estimate,color=strata)) +
-    geom_step() +
-    geom_rect(aes(xmin = xmin, xmax = xmax, 
-                ymin = conf.low, ymax = conf.high,
-                fill=strata),
-              alpha = 0.15,
-              inherit.aes=FALSE) +
-    theme_c() +
-    viridis::scale_color_viridis(discrete=TRUE,
-                                 option="magma", end=.8, begin=.3) +
-    viridis::scale_fill_viridis(discrete=TRUE,
-                                 option="magma", end=.8, begin=.3) +
-    labs(y="Disease-Free Survival", x= "Time (Days)",
-         title=paste0("By ", nice_name), color="", fill="") +
-    scale_x_continuous(n.breaks=7)
-  
-}
-
-
-
-# get kaplan meier curve corresponding to given covariate 
-get_km_curve <- function(var, nice_name) {
-  if(is.factor(bmt[[var]])) {
-    plot <- get_discrete_km(var, nice_name)
-  }
-  else {
-    plot <- get_continuous_km(var, nice_name)
-  }
-  return(plot)
-}
-
-
-# iterate over all baseline variables of interest 
-pltlist <- map2(covariates,nice_names, get_km_curve)
-
-
-
-```
-
-
-```{r,fig.height=14, fig.width=14}
+```{r,fig.height=14, fig.width=16}
 
 get_survival_curve <- function(var, nice_name) {
   
@@ -344,14 +188,17 @@ get_survival_curve <- function(var, nice_name) {
                 fill=strata),
               alpha = 0.15,
               inherit.aes=FALSE) +
-    theme_c() +
+    theme_c(legend.text=element_text(size=16),
+            plot.title=element_text(size=16,
+                                    margin = margin(b = 5))) +
     viridis::scale_color_viridis(discrete=TRUE,
                                  option="magma", end=.8, begin=.3) +
     viridis::scale_fill_viridis(discrete=TRUE,
                                  option="magma", end=.8, begin=.3) +
     labs(y="Disease-Free Survival", x= "Time (Days)",
          title=paste0("By ", nice_name), color="", fill="") +
-    scale_x_continuous(n.breaks=7)
+    scale_x_continuous(n.breaks=7) +
+    guides(color=guide_legend(override.aes = list(linewidth=2)))
   
 }
 
@@ -362,16 +209,97 @@ library(patchwork)
 
 # arrange plots into a grid 
 (pltlist[[1]] + pltlist[[2]])/ (pltlist[[3]] + pltlist[[4]]) / (pltlist[[5]] + pltlist[[6]]) / (pltlist[[7]] + pltlist[[8]])/(pltlist[[9]] + pltlist[[10]]) + plot_annotation(
-  title = "Kaplan-Meier Curves by Baseline Variables of Interest",
+  title = "Survival Curves by Baseline Variables of Interest",
   theme=theme_c(plot.title=element_text(face="bold",hjust=.5, size=20)))
 
 # save plot 
-ggsave(here("figures/km_by_baseline.jpeg"))
+ggsave(here("figures/surv_by_baseline.jpeg"))
 
 ```
 
 
-```{r, error=TRUE}
+
+```{r,fig.height=14, fig.width=16,eval=FALSE,include=FALSE}
+
+get_survival_curve <- function(var, nice_name,model) {
+  
+  # mod <- coxph(as.formula(paste0("Surv(tdfs, deltadfs) ~ ", var)),
+  #    data = bmt)
+  
+  mod <- model
+  
+  if (is.factor(bmt[[var]])) {
+    newdat <- tibble(
+    !!var := unique(bmt[[var]])
+  )
+  }
+  else {
+    newdat <- tibble(
+    !!var := round(quantile(bmt[[var]],probs= c(.25,.75), na.rm=TRUE),2))
+    
+  }
+  
+  
+  est_by_group <- pmap_df(newdat, ~{
+    ggsurvfit(survfit(mod, newdata =tibble(!!var := .x)))$data %>%
+      mutate(strata = .x)}
+    )
+  
+  if(!is.factor(bmt[[var]]))  {
+    est_by_group <- est_by_group %>%
+      mutate(strata=paste0(nice_name, " = ", strata))
+  }
+
+  est_by_group %>%
+    select(estimate, strata, time, conf.high, conf.low) %>%
+    dplyr::arrange(strata, time) |>
+    dplyr::group_by(strata) |>
+    dplyr::mutate(
+    xmin = time,
+    xmax = dplyr::lead(time)   # next step’s start
+  ) |>
+    mutate(strata=gsub(paste0(var,"="), 
+                       "",
+                       strata)) %>%
+    ggplot(aes(x=time,y=estimate,color=strata)) +
+    geom_step() +
+    geom_rect(aes(xmin = xmin, xmax = xmax, 
+                ymin = conf.low, ymax = conf.high,
+                fill=strata),
+              alpha = 0.15,
+              inherit.aes=FALSE) +
+    theme_c(legend.text=element_text(size=16),
+            plot.title=element_text(size=16,
+                                    margin = margin(b = 5))) +
+    viridis::scale_color_viridis(discrete=TRUE,
+                                 option="magma", end=.8, begin=.3) +
+    viridis::scale_fill_viridis(discrete=TRUE,
+                                 option="magma", end=.8, begin=.3) +
+    labs(y="Disease-Free Survival", x= "Time (Days)",
+         title=paste0("By ", nice_name), color="", fill="") +
+    scale_x_continuous(n.breaks=7) +
+    guides(color=guide_legend(override.aes = list(linewidth=2)))
+  
+}
+
+pltlist <- pmap(list(covariates,nice_names,model_list), get_survival_curve)
+
+# package for arranging plots
+library(patchwork)
+
+# arrange plots into a grid 
+(pltlist[[1]] + pltlist[[2]])/ (pltlist[[3]] + pltlist[[4]]) / (pltlist[[5]] + pltlist[[6]]) / (pltlist[[7]] + pltlist[[8]])/(pltlist[[9]] + pltlist[[10]]) + plot_annotation(
+  title = "Survival Curves by Baseline Variables of Interest",
+  theme=theme_c(plot.title=element_text(face="bold",hjust=.5, size=20)))
+
+# save plot 
+ggsave(here("figures/surv_by_baseline.jpeg"))
+
+```
+
+
+
+```{r}
 
 
 library(gt)
@@ -409,6 +337,8 @@ get_model_summary <- function(var, nice_name, model) {
 ```
 
 
+## Schoenfeld Residuals 
+
 ```{r, fig.height=16, fig.width=12}
 
 get_model <- function(var) {
@@ -434,9 +364,9 @@ library(splines)
 get_res_plot <- function(var, nice_name, model) {
   
   res <- as.data.frame(cox.zph(model, transform="km")$y)[[var]]
-  pval <- cox.zph(model, transform="km")$table[var,"p"] %>%
-    signif(3)
-  
+  # pval <- cox.zph(model, transform="km")$table[var,"p"] %>%
+  #   signif(3)
+  # 
   if(is.null(res)) {return(NULL)}
   time <- cox.zph(model, transform="km")$time
   df <- tibble(var = var,
@@ -462,7 +392,7 @@ get_res_plot <- function(var, nice_name, model) {
     theme_c(plot.title=element_text(face="plain", size=10,hjust=0)) +
     labs(title=paste0(
                       "\nSchoenfeld Residuals for: ", nice_name,
-                      "\nP-value: ", pval,
+                     # "\nP-value: ", pval,
                        "\n"))
     
 }
@@ -480,7 +410,9 @@ cowplot::plot_grid(plotlist=plotlist,ncol=2)
 # add time-varying covariates based on residual plots above 
 #-------------------------------------------------------------
 
+```
 
+```{r, eval=FALSE}
 # linear interaction with time 
 model_list[["donorage"]] <- coxph(
   Surv(tdfs, deltadfs) ~ donorage + tt(donorage),
@@ -500,6 +432,174 @@ model_list[["mtx"]] <- coxph(
 
 
 ```
+
+
+
+## Schoenfeld Residuals (High Leverage Point Excluded)
+
+```{r, fig.height=16, fig.width=12}
+
+get_model_exclude_outlier <- function(var) {
+  
+  model <- coxph(as.formula(paste0("Surv(tdfs, deltadfs) ~ ", var)),
+     data = bmt %>% filter(id != 69))
+  
+  return(model)
+  
+}
+
+model_list_exclude_outlier <- map(covariates, get_model_exclude_outlier)
+names(model_list_exclude_outlier) <- covariates
+
+
+# linear spline basis 1: min(t, c) # basis 2: (t - c)+)
+#----------------------------
+# plot Schoenfeld residuals 
+#----------------------------
+
+library(splines)
+
+plotlist <- pmap(list(var=covariates,
+          nice_name=nice_names,
+          model=model_list_exclude_outlier), 
+     get_res_plot)
+
+
+cowplot::plot_grid(plotlist=plotlist,ncol=2)
+
+
+```
+
+## Testing Interactions with Time 
+
+
+```{r}
+
+# MTX
+mtx_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ mtx + tt(mtx),
+     data = bmt %>% mutate(mtx = ifelse(
+       mtx=="Prophylactic Use of Methotrexate", 1, 0)),
+      tt=function(x,t,...) x*t)
+
+tbl_regression(mtx_mod, exponentiate=TRUE, conf.level=.9)
+
+
+# FAB
+fab_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ fab + tt(fab),
+     data = bmt %>% mutate(fab = ifelse(
+       fab=="Other", 0, 1)),
+      tt=function(x,t,...) x*t)
+
+tbl_regression(fab_mod, exponentiate=TRUE, conf.level=.9)
+
+
+# cmv
+cmv_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ cmv + tt(cmv),
+     data = bmt %>% mutate(cmv = ifelse(
+       cmv=="CMV Positive", 1, 0)),
+      tt=function(x,t,...) x*t)
+
+tbl_regression(cmv_mod, exponentiate=TRUE, conf.level=.9)
+
+
+# donor cmv
+cmv_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ donorcmv + tt(donorcmv),
+     data = bmt %>% mutate(donorcmv = ifelse(
+       donorcmv=="CMV Positive", 1, 0)),
+      tt=function(x,t,...) x*t)
+
+tbl_regression(cmv_mod, exponentiate=TRUE, conf.level=.9)
+
+
+
+
+# sex 
+sex_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ male + tt(male),
+     data = bmt %>% mutate(male = ifelse(
+       male=="Male", 1, 0)),
+      tt=function(x,t,...) x*t)
+
+tbl_regression(sex_mod, exponentiate=TRUE, conf.level=.9)
+
+# donor sex 
+sex_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ donormale + tt(donormale),
+     data = bmt %>% mutate(donormale = ifelse(
+       male=="Male", 1, 0)),
+      tt=function(x,t,...) x*t)
+
+tbl_regression(sex_mod, exponentiate=TRUE, conf.level=.9)
+
+
+# donor age 
+donorsex_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ donorage + tt(donorage),
+     data = bmt,
+      tt=function(x,t,...) x*t)
+
+tbl_regression(donorsex_mod, exponentiate=TRUE, conf.level=.9)
+
+
+# disease group  
+disgroup_mod <- coxph(
+  Surv(tdfs, deltadfs) ~ is_low + is_high+ tt(is_high),
+     data = bmt %>%
+    mutate(is_low = ifelse(disgroup=="Acute Myelocytic Leukemia (Low Risk)",
+                           1, 0),
+           is_high = ifelse(disgroup=="Acute Myelocytic Leukemia (High Risk)",
+                            1, 0)),
+      tt=function(x,t,...) x*t )
+
+tbl_regression(disgroup_mod, exponentiate=TRUE, conf.level=.9,
+               label=list(is_low="Acute Myelocytic Leukemia (Low Risk)",
+                          is_high="Acute Myelocytic Leukemia (High Risk)",
+                          `tt(is_high)`="tt(Acute Myelocytic Leukemia (High Risk))"))
+
+
+
+```
+
+```{r}
+
+#-------------------------------------------------------------
+# add time-varying covariates based on residual plots above 
+#-------------------------------------------------------------
+
+# piecewise linear interaction with time (to handle U-shapes)
+# before the cutpoint, slope is beta_1
+# after the cutpoint, slope is beta_2
+# continuous at cutpoint 
+# model_list[["mtx"]] <- coxph(
+#   Surv(tdfs, deltadfs) ~ mtx + tt(mtx),
+#      data = bmt %>% mutate(mtx = ifelse(
+#        mtx=="Prophylactic Use of Methotrexate", 1, 0)),
+#       tt=function(x,t,...) cbind( x * pmin(t, 600), x * pmax(0, t - 600))) 
+
+
+model_list[["mtx"]] <- coxph(
+  Surv(tdfs, deltadfs) ~ mtx + tt(mtx),
+     data = bmt %>% mutate(mtx = ifelse(
+       mtx=="Prophylactic Use of Methotrexate", 1, 0)),
+      tt=function(x,t,...) x*t)
+
+model_list[["disgroup"]] <- coxph(
+  Surv(tdfs, deltadfs) ~ is_low + is_high+ tt(is_high),
+     data = bmt %>%
+    mutate(is_low = ifelse(disgroup=="Acute Myelocytic Leukemia (Low Risk)",
+                           1, 0),
+           is_high = ifelse(disgroup=="Acute Myelocytic Leukemia (High Risk)",
+                            1, 0)),
+      tt=function(x,t,...) x*t )
+
+
+```
+
+## Table
 
 ```{r univar-model-table}
 
@@ -562,12 +662,15 @@ ggsurvfit(sf)
 
 # Directive 6
 
-To assess the association between prophylactic use of methotrexate and the risk of developing aGVHD, we considered a fully adjusted Cox proportional hazards model, adjusting for the confounders age, fab classification, wait time until transplant, donor age, donor sex, cmv, sex, donor cmv, and disease group. PLACEHOLDER - JUSTIFY CHOICE OF CONFOUNDERS SOMEWHERE. Because hospital is perfectly collinear with the prophylactic use of methotrexate, we did not adjust for hospital. The time-to-event variable of interest was time from transplantation (time at enrollment) to time of the develoment of aGVHD. 
+ To assess the association between prophylactic use of methotrexate and the risk of developing aGVHD, we estimated survival curves using an adjusted Cox proportional hazards model, adjusting for the confounders age, wait time until transplant, donor age, sex mismatch, CMV mismatch, and disease group. Sex mismatch was encoded as a 3-level factor: donor-recipient sex match; donor male, recipient female; and donor female, recipient male. A sex match was taken to be the reference category. CMV mismatch was encoded as a 4 level factor: CMV negative in both donor and recipient; CMV positive in donor, negative in recipient; CMV negative in donor, positive in recipient; and CMV positive in both donor and recipient.
+While death is a competing event for the development of aGVHD, this was not a problem in our sample because no patient died before developing aGVHD, and hence we did not need to explicitly handle competing events for this analysis.
 
-While death is a competing event for the development of aGVHD, this is not a problem in our sample because no patient died before developing aGVHD, and hence we do not need to explicitly handle competing events for this analysis.
+We used the g-computation formula to calculate treatment specific survival curves, and used bootstrap confidence intervals to estimate the difference in event-free survival probabilities at a subset of clinically relevant time points, 14 days, 30, days, 60 days, and 90 days.
+
+The confounders were selected based on clinical reasoning. That is, variables that could plausibly be related to both treatment and the development of aGVHD were considered. Several of the baseline variables can be considered proxies for underlying disease severity, which may affect both whether a patient was prioritized for prophylactic use of methotrexate – for example, via a clinician’s guidance to seek treatment at a center where prophylactic use of methotrexate was the protocol – and a patient’s development of aGVHD. While wait time could conceivably be related to both the treatment and development of aGVHD, a short wait time could also be reflective of a patient’s obtaining a transplant from a family member or friend, and as such, we concluded wait time was a less useful proxy for underlying disease severity. 
 
 
-```{r, fig.width=6, fig.height=6}
+```{r, fig.width=6, fig.height=6, include=FALSE}
 
 #------------------
 # Directive 6 
@@ -585,6 +688,10 @@ bmt %>%
 
 cor(bmt %>% select(all_of(confounders)) %>%
   select(where(is.numeric)))
+
+```
+
+```{r,fig.width=6, fig.height=6}
 
 bmt <- bmt %>%
   mutate(sex_mismatch = paste0(donormale, "->", male),
@@ -870,7 +977,7 @@ get_marginal_surv <- function(dat,
 }
   
 
-boot_surv <- map_df(1:1000, ~ {
+boot_surv <- map_df(1:5000, ~ {
   ind <- sample(1:nrow(bmt), replace=TRUE)
   boot_samp <- bmt[ind,]
   get_marginal_surv(boot_samp)
@@ -906,7 +1013,7 @@ boot_surv %>%
          time_lab=fct_reorder(time_lab,time)) %>%
   ggplot(aes(y=time_lab, xmin=lower,xmax=upper)) +
   geom_point(aes(y=time_lab,x=estimate))+
-  geom_errorbar() +
+  geom_errorbar(width=.3) +
   theme_c(axis.title.x=element_text(size=16),
           axis.text.y=element_text(size=14)) +
   geom_vline(aes(xintercept=0), color="darkred", linetype=2) +
@@ -932,18 +1039,14 @@ boot_surv %>%
 
 > Based on the available data, is recovery of normal platelet levels associated with improved disease-free survival? Is it associated with a decreased risk of relapse?
 
-To assess whether the recovery of normal platelet levels associated with disease-free survival, we fit a Cox proportional hazards model with the recovery of platelet levels as a time-varying covariate, adjusting for the confounders age, FAB classification, wait time until transplant, donor age, donor-recipient sex mismatch, donor-recipient CMV mismatch, and disease group. 
-
-While death could act as a competing event, no patient in our sample died before their return to normal platelet levels, so it was not necessary to handle competing events for this analysis.
-
-To evaluate whether there is association between the recovery of normal platelet levels and the risk of relapse, we do need to handle the fact that death is a competing event. To do so, we use a semiparametric proportional sub-distribution odds model 
-
+ To assess whether the recovery of normal platelet levels associated with disease-free survival, we fit a Cox proportional hazards model with the recovery of platelet levels as a time-varying covariate, adjusting for the confounders age, wait time until transplant, donor age, donor-recipient sex mismatch, donor-recipient CMV mismatch, disease group, and prophylactic use of methotrexate. While death could act as a competing event, no patient in our sample died before their return to normal platelet levels, so it was not necessary to handle competing events for this analysis.
+ 
 
 ## Is recovery of normal platelet levels associated with improved disease-free survival?
 
 
-### Fully Adjusted Model
- 
+## Fully Adjusted Model 
+
 ```{r}
 
 # Age, fab classification, wait time until transplant, donor age, donor sex, cmv, sex, donor cmv, disease group
@@ -964,12 +1067,15 @@ model <- coxph( Surv(tstart, tstop, endpt) ~ age +
            mtx, data=dat) 
 
 gtsummary::tbl_regression(model,
-                          label=list(plat="Platelet Count",
+                          label=list(plat="Recovery of Normal Platelet Levels",
                                      age="Age",
                                      fab="FAB Classification",
                                      male="Sex",
                                      disgroup="Disease Group",
-                                     cmv="Patient CMV"#,
+                                     cmv="Patient CMV",
+                                     donorage="Donor Age",
+                                     sex_mismatch="Sex Mismatch",
+                                     mtx="Treatment" #,
                                      # waittime="Wait Time"
                                      ),
                           exponentiate=TRUE,
@@ -1010,13 +1116,19 @@ gtsummary::tbl_regression(model,
 ## Is recovery of normal platelet levels associated with relapse?
 
 
+To evaluate whether there was an association between the recovery of normal platelet levels and the risk of relapse, we did need to handle the fact that death is a competing event. To do so, we used a semiparametric proportional sub-distribution odds model, which was fit with the implementation provided by the timereg R package.
+
+
+
 ```{r, fig.height=6, fig.width=8}
 
 
 
 dat <- bmt %>% 
   select(age,fab, waittime, disgroup, 
-         deltap, tp, deltadfs, deltar, deltas, sex_mismatch,cmv_mismatch,donorage,
+         deltap, tp, deltadfs, deltar,
+         deltas, sex_mismatch,cmv_mismatch,donorage,
+         mtx,
          tdfs) %>%
   mutate(id=row_number())
 
@@ -1044,7 +1156,7 @@ odds_mod <- prop.odds.subdist(Event(tdfs, cause) ~ plat,
 odds_mod <- prop.odds.subdist(Event(tdfs, cause) ~ 
                            age + # fab+ waittime+# fab +# waittime + 
          cmv_mismatch  + disgroup  +donorage + sex_mismatch +
-           plat, 
+           plat + mtx, 
          cause = 2,
          data=dat)
 
@@ -1065,144 +1177,97 @@ coef(odds_mod) %>% as.data.frame() %>%
     "",variable),
     variable=gsub("plat", "Recovery of Normal Platelet Levels", variable),
     variable=gsub("waittime", "Wait Time for Transplant", variable),
-    variable=gsub("age", "Age", variable)) %>%
+    variable=gsub("age", "Age", variable),
+    variable=gsub("donorAge", "Donor Age", variable)) %>%
 #  mutate(across(c(`Coef.`, `lower2.5%`,`upper97.5%`), exp)) %>%
   ggplot(aes(y=fct_reorder(variable,coef),
              xmin=lower,
              xmax=upper)) +
   geom_errorbar(width=.2) +
+  geom_point(aes(x=coef),size=.55) +
   geom_vline(xintercept=1,linetype=2,color="darkred") +
   theme_c(axis.text.y=element_text(size=11, hjust=1),
           axis.title.x=element_text(size=11.5)) +
-  labs(y="", x="Hazard Ratio")
+  labs(y="", x="Odds Ratio")
 
 
 ggsave(here("figures/directive_7.jpeg"))
 
+
+
+coef(odds_mod) %>% as.data.frame() %>%
+  as_tibble(rownames="variable") %>%
+  rename(coef=`Coef.`) %>%
+  mutate(lower = coef + qnorm(.05)*SE,
+         upper= coef+ qnorm(.95)*SE,
+         lower=exp(lower),
+         upper=exp(upper),
+         coef=round(exp(coef),3),
+         CI= paste0(round(lower,3), ", ", round(upper, 3)),
+         `P-val`= round(`P-val`,3))  %>%
+  select(Characteristic=variable, OR=coef, `90% CI`=CI,
+         `p-value`=`P-val`) %>%
+  mutate(Characteristic = gsub(
+    "cmv_mismatch|disgroup|sex_mismatch", "", 
+    Characteristic),
+    Characteristic=str_to_title(Characteristic),
+    Characteristic=gsub("Cmv", "CMV", Characteristic),
+    Characteristic=gsub("Donorage", "Donor Age", Characteristic),
+     Characteristic=gsub("Plat", 
+                         "Recovery of Normal Platelet Levels",
+                         Characteristic)) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options="striped")
+ 
 ```
 
 
+# Directive 4
 
-```{r,eval=FALSE}
+```{r}
+
 
 dat <- bmt %>% 
-  select(age,fab, waittime, cmv_mismatch, sex_mismatch, male, disgroup, 
-         deltap, tp, deltadfs, donorage,donormale,
-         tdfs) %>%
+  select(age,fab, waittime, disgroup, 
+         deltap, tp, deltadfs, deltar,
+         deltas, sex_mismatch,cmv_mismatch,donorage,
+         mtx,
+         tdfs,ta,deltaa) %>%
   mutate(id=row_number())
 
 dat <- tmerge(dat, dat, id=id,endpt=event(tdfs,deltadfs))
-dat <- tmerge(dat, dat, id=id, plat=tdc(tp, deltap,init=0))
+dat <- tmerge(dat, dat, id=id, agvhd=tdc(ta, deltaa,init=0))
 
-model <- coxph( Surv(tstart, tstop, endpt) ~ age + fab + waittime + 
-         cmv + male + disgroup + plat +donorage+donormale, data=dat) 
+library(timereg) 
 
-gtsummary::tbl_regression(model,
-                          label=list(plat="Platelet Count",
-                                     age="Age",
-                                     fab="FAB Classification",
-                                     male="Sex",
-                                     disgroup="Disease Group",
-                                     cmv="Patient CMV",
-                                     waittime="Wait Time"),
-                          exponentiate=TRUE,
-                          conf.level=.9,
-                           pvalue_fun = label_style_pvalue(digits = 3))
-
-```
+dat <- dat %>%
+  mutate(cause = case_when(
+    # death
+    deltas == 1 & deltar == 0 ~ 1,
+    # relapse 
+    deltar == 1 ~ 2,
+    deltar == 0 & deltas == 0 ~ 0
+  ),
+  cause=as.integer(cause))
 
 
-```{r,eval=FALSE}
-get_marginal_surv <- function(dat) {
-  
-  model <- coxph(Surv(ta, deltaa) ~
-                 mtx + age + donorage +
-                 waittime + 
-                 fab + disgroup+
-                 sex_mismatch  +
-                 cmv_mismatch, data=dat
-               )
+# marginal association 
+odds_mod_marg <- prop.odds.subdist(Event(tdfs, cause) ~agvhd ,
+         cause = 2,
+         data=dat)
 
-  surv_treat <- survfit(model, newdata=dat %>% 
-            mutate(mtx="Prophylactic Use of Methotrexate")) %>%
-    broom::tidy() %>%
-    rowwise() %>%
-    mutate(
-      mean_surv = mean(c_across(contains("estimate")), na.rm = TRUE)
-    ) %>%
-    ungroup() %>%
-    select(time, surv_treat = mean_surv) 
-  
-  surv_no_treat <- survfit(model, newdata=dat %>% 
-          mutate(mtx="No Prophylactic Use of Methotrexate")) %>%
-    broom::tidy() %>%
-    rowwise() %>%
-    mutate(
-      mean_surv = mean(c_across(contains("estimate")), na.rm = TRUE)
-    ) %>%
-    ungroup() %>%
-    select(time, surv_no_treat= mean_surv) 
-  
-  surv_treat %>%
-    left_join(surv_no_treat)
-  
-}
+summary(odds_mod_marg)
 
-boot_surv <- map_df(1:100, ~ {
-  ind <- sample(1:nrow(bmt), replace=TRUE)
-  boot_samp <- bmt[ind,]
-  get_marginal_surv(boot_samp)
-}) 
+odds_mod <- prop.odds.subdist(Event(tdfs, cause) ~ 
+                           age + # fab+ waittime+# fab +# waittime + 
+         cmv_mismatch  + disgroup  +donorage + sex_mismatch +
+           agvhd + mtx, 
+         cause = 2,
+         data=dat)
 
-saveRDS(boot_surv, here('data/boot_surv_directive_6.RDS'))
-
-boot_summary <- boot_surv |>
-  group_by(time) |>
-  summarise(
-    S1_lo = quantile(surv_treat, 0.025, na.rm = TRUE),
-    S1_hi = quantile(surv_treat, 0.975, na.rm = TRUE),
-    S0_lo = quantile(surv_no_treat, 0.025, na.rm = TRUE),
-    S0_hi = quantile(surv_no_treat, 0.975, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  pivot_longer(-c(time)) %>% 
-  mutate(treatment = ifelse(grepl("S1", name),
-                             "Prophylactic Use of Methotrexate",
-                            "No Prophylactic Use of Methotrexate"),
-         new_name = ifelse(grepl("lo", name), "lower","upper")) %>%
-  select(-name) %>%
-  pivot_wider(values_from=value,names_from=new_name)
-
-
-boot_surv %>%
-  mutate(difference=surv_treat-surv_no_treat) %>%
-  group_by(time) %>%
-  summarize(lower=quantile(difference,.025),
-            upper=quantile(difference,.975)) %>%
-  ggplot(aes(x=time, ymin =lower, ymax=upper)) +
-  geom_errorbar()
-
-surv_est_dir6 %>%
-  left_join(boot_summary) %>%
-  mutate(maxtime=lead(time,n=1)) %>%
-  ggplot(aes(x=time, y=mean_surv, color=treatment))+
-  geom_step() +
-  coord_cartesian(xlim=c(0,150)) +
-  theme_c() 
-
-+
-  viridis::scale_color_viridis(
-      discrete=TRUE, option="mako", end=.8, begin=.2) +
-  labs(x="Time (Days)", y = "Event-Free Survival") +
-  geom_rect(aes(xmin = time, xmax = maxtime, 
-                ymin = lower, ymax = upper,
-                fill=treatment),
-              alpha = 0.15,
-              inherit.aes=FALSE)
+summary(odds_mod)
 
 
 
 ```
-
-
 
