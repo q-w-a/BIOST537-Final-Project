@@ -16,6 +16,8 @@ output:
   pdf_document:
     toc: true
     toc_depth: '5'
+knit: (function(input,...) {
+  rmarkdown::render(input,output_dir=here::here("output"))})
 ---
 
 ```{r setup, include=FALSE}
@@ -37,10 +39,10 @@ library(tableone)
 library(gt)
 ```
 
-###Variable Preparation
+### Variable Preparation
 
-```{r}
-bmt <- read.csv("bmt.csv") %>%
+```{r data-prep}
+bmt <- read.csv(here::here("data/bmt.csv")) %>%
   mutate(across(c(male, cmv, donorcmv, disgroup, donormale,
                   fab, mtx, hospital),as_factor)) %>%
   mutate(male = ifelse(male==1, "Male", "Female"),
@@ -74,10 +76,13 @@ bmt <- read.csv("bmt.csv") %>%
            hospital == 3 ~ "St. Vincent (Sydney, Australia)",
            hospital == 4 ~ "AHahnemann (Philadelphia, PA)"))
 
+glimpse(bmt)
 s.dfs <- with(bmt, Surv(time = tdfs, event = deltadfs))
+
 ```
 
-###Directive 1
+### Directive 1 
+
 Provide an estimate of disease-free survival time for patients enrolled in this study. 
 What are the main characteristics of this summary?
 
@@ -92,7 +97,7 @@ What are the main characteristics of this summary?
 (2) Add the plot of the KM estimator (with CI bands) 
 
 ```{r}
-#1
+
 fit.dfs <- survfit(s.dfs ~ 1,
                    conf.type = "log-log",
                    conf.int  = 0.90, data=bmt)
@@ -100,28 +105,37 @@ fit.dfs <- survfit(s.dfs ~ 1,
 summary(fit.dfs)
 print(fit.dfs)
 
-library(survminer)
+```
 
-km_plot <- ggsurvplot(fit.dfs, legend.title="Kaplan-Meier estimate of Disease-Free Survival",
+```{r}
+
+km_plot <- survminer::ggsurvplot(survfit(
+  Surv(time = tdfs, event = deltadfs) ~ 1,
+                   conf.type = "log-log",
+                   conf.int  = 0.90, data=bmt), 
+                      legend.title="Kaplan-Meier estimate of Disease-Free Survival",
+                      data=bmt,
            conf.int=TRUE, censor = FALSE,
            palette = c("#9370DB"),  
            conf.int.alpha = 0.2,
            pval=T,surv.median.line="hv")
+km_plot
 
-
-ggsave("km_directive1.png", plot = km_plot$plot, width = 6, height = 4, dpi = 300)
+ggsave(here::here("figures/km_directive1.png"), plot = km_plot$plot, width = 6, height = 4, dpi = 300)
 ```
 
 (3) We can later think about adding / discussing the restricted mean survival time 
 
 ```{r}
-source("getmedianres.R")
+source(here::here("scripts/getmedianres.R"))
+
 getmedianres(survobj=s.dfs,times=481,confint=TRUE)
 
 cat("The point at which half of them experience the event does not appear in the data\n")
 ```
 
-##Directive 2
+## Directive 2
+
 (1) How do patients in different ***disease groups*** compare to each other in baseline measurements and 
 (2) how do patients in different ***FAB classifications*** compare to each other with respect to other available baseline measurements?
 
@@ -130,6 +144,7 @@ Baseline measurements of interest:
  patient age and sex, donor age and sex, patient and donor cytomegalovirus (CMV) immune status, the wait time from diagnosis to transplantation, disease group, French-American-British (FAB) classification based on standard morphological criteria, and prophylactic use of methotrexate to prevent aGVHD
 
 **Based on**
+
 >> (1) disgroup
     1 = ALL ALL refers to ”acute lymphoblastic leukemia”
     2 = AML Low Risk AML refers to ”acute myelocytic leukemia
@@ -166,7 +181,7 @@ Baseline measurements of interest:
   - mtx: prophylactic use of methotrexate 
   1 = yes 0 = no
 
-###Summary: Continuous variables
+### Summary: Continuous variables
 ```{r}
 names(bmt)
 
@@ -207,7 +222,7 @@ vars %>%
     heading.title.font.size = px(10))
 ```
 
-###Boxplot: continuous variables
+### Boxplot: continuous variables
 ```{r}
 # Disease group - Wait time
 p <- ggplot(bmt, aes(x = disgroup, y = waittime, fill=disgroup)) +
