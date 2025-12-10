@@ -1,0 +1,866 @@
+---
+title: "Directives 4 and 5"
+date: "`r Sys.Date()`"
+output: 
+  rmdformats::readthedown:
+    code_folding: hide
+knit: (function(input,...) {
+  rmarkdown::render(input,output_dir=here::here("output"))})
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=FALSE, warning=FALSE)
+
+# ----------- PRELIMINARIES ---------------
+# load needed packages 
+library(here)
+library(tidyverse)
+library(survival)
+library(survminer)
+library(survMisc)
+library(muhaz)
+library(timereg)
+library(table1)
+library(gtsummary)
+library(gt)
+
+theme_c <- function(...){ 
+   # font <- "Helvetica"   #assign font family up front
+  #  font <- "Arial"
+    theme_bw() %+replace%    #replace elements we want to change
+    
+    theme(
+      
+      #text elements
+      plot.title = element_text(             #title
+                 #  family = font,            #set font family
+                   size = 11,                #set font size
+                   face = 'bold',            #bold typeface
+                   hjust = .5,
+                   vjust = 3),               
+      
+      plot.subtitle = element_text(          #subtitle
+                #   family = font,            #font family
+                   size = 10,
+                   hjust = .5,
+                   face = 'italic',
+                   vjust = 3),               #font size
+      
+      axis.title = element_text(             #axis titles
+                #   family = font,            #font family
+                   size = 10),               #font size
+      
+      axis.text = element_text(              #axis text
+                #   family = font,            #axis famuly
+                   size = 8),
+      strip.text = element_text(color="white", size = 9,
+                                margin=unit(c(.1,.1,.1,.1), 'cm')),
+      strip.background = element_rect(fill = "#363636"),
+      # t, r, b, l
+      plot.margin = unit(c(1,.5,.5,.5), "cm")
+      ) %+replace%
+      theme(...)
+   
+}
+```
+
+# Directive 4 
+
+```{r}
+
+data <- read_csv(here("data/bmt.csv"))
+
+# Descriptive stats
+data <- data %>%
+  mutate(
+    # Male/Female (patient)
+    male_f = factor(
+      if_else(male == 1, "Male", "Female"),
+      levels = c("Male", "Female")
+    ),
+    # CMV (patient)
+    cmv_f = factor(
+      if_else(cmv == 1, "CMV Positive", "CMV Negative"),
+      levels = c("CMV Positive", "CMV Negative")
+    ),
+    # Male/Female (donor)
+    donormale_f = factor(
+      if_else(donormale == 1, "Male", "Female"),
+      levels = c("Male", "Female")
+    ),
+    # CMV (donor)
+    donorcmv_f = factor(
+      if_else(donorcmv == 1, "CMV Positive", "CMV Negative"),
+      levels = c("CMV Positive", "CMV Negative")
+    ),
+    # FAB
+    fab_f = factor(
+      if_else(fab == 1, "Grade 4, Grade 5 and AML", "Otherwise"),
+      levels = c("Grade 4, Grade 5 and AML", "Otherwise")
+    ),
+    # Hospital ()
+    hospital_f = factor(
+      case_when(
+        hospital == 1 ~ "Ohio State University",
+        hospital == 2 ~ "Alfred",
+        hospital == 3 ~ "St. Vincent",
+        hospital == 4 ~ "Hahnemann",
+        TRUE ~ NA_character_
+      ),
+      levels = c("Ohio State University", "Alfred", "St. Vincent", "Hahnemann")
+    ),
+    
+    # MTX
+    mtx_f = factor(
+      if_else(mtx == 1, "Yes", "No"),
+      levels = c("Yes", "No")
+    ),
+    
+    
+    # disgroup
+    disgroup_f = factor(
+      case_when(
+        disgroup == 1 ~ "ALL",
+        disgroup == 2 ~ "AML Low Risk",
+        disgroup == 3 ~ "AML High Risk",
+        is.na(disgroup) ~ NA_character_  ),
+      levels = c("ALL", "AML Low Risk", "AML High Risk")
+    )
+    
+)
+
+
+#### Confounders #### - Quinn code
+
+confounders <- c("age", "donorage", "waittime", "fab",
+                 "male", "donormale", "cmv", "donorcmv",
+                 "disgroup", "hospital")
+
+
+
+data %>%
+  group_by(hospital) %>%
+  summarise(
+    across(all_of(confounders[-length(confounders)]),
+           n_distinct)) 
+
+cor(data %>% select(all_of(confounders)) %>%
+      select(where(is.numeric)))
+
+data <- data %>%
+  mutate(sex_mismatch = paste0(donormale_f, "->", male_f),
+         sex_mismatch = ifelse(sex_mismatch == "Male->Male",
+                               "Match", sex_mismatch),
+         sex_mismatch = ifelse(sex_mismatch == "Female->Female",
+                               "Match", sex_mismatch),
+         sex_mismatch = factor(
+           sex_mismatch, 
+           levels=c("Match", "Male->Female","Female->Male")),
+         
+         cmv_mismatch = paste0(donorcmv_f, "->", cmv_f),
+         cmv_mismatch = ifelse(cmv_mismatch == "CMV Positive->CMV Positive",
+                               "Match", cmv_mismatch),
+         cmv_mismatch = ifelse(cmv_mismatch == "CMV Negative->CMV Negative",
+                               "Match", cmv_mismatch),
+         
+         cmv_mismatch = factor(
+           cmv_mismatch, 
+           levels=c("Match",
+                    "CMV Negative->CMV Positive",
+                    "CMV Positive->CMV Negative"
+           ))
+  )
+
+
+
+
+
+
+# ---- Add labels (what shows as the row/section headers in the table) ----
+label(data$male_f)       <- "Sex (recipient)"
+label(data$age)          <- "Age in years (recipient)"
+label(data$cmv_f)        <- "CMV (recipient)"
+label(data$donormale_f)  <- "Sex (donor)"
+label(data$donorcmv_f)   <- "CMV (donor)"
+label(data$fab_f)        <- "FAB category"
+label(data$hospital_f)   <- "Hospital"
+label(data$mtx_f)        <- "Prophylactic Mtx"
+label(data$sex_mismatch) <- "Sex mismatch"
+label(data$cmv_mismatch) <- "CMV status mismatch"
+
+
+# ---- Table 1 ----
+table1(~ male_f + age + cmv_f + donormale_f + donorcmv_f +
+         fab_f + hospital_f + mtx_f + sex_mismatch + cmv_mismatch,
+       data = data)
+
+
+
+
+
+
+
+
+####DIRECTIVE 4 ####
+
+#---- Question 4 PART A ----- 
+
+#It is generally thought that aGVHD has an anti-leukemic eect. Based on the available data, is
+#occurrence of aGVHD after transplantation associated with improved disease-free survival?
+
+
+
+# Create start-stop format for time-dependent covariate
+td_data <- tmerge(data1 = data, data2 = data, id = id,
+                      tstart = 0, tstop = tdfs,
+                      dfs_event = event(tdfs, deltadfs),  # combined endpoint # we do not care about cause-specific
+                      aGVHD = tdc(ta))                    # time-varying covariate
+
+# Fit Cox model for overall DFS
+cox_dfs <- coxph(Surv(tstart, tstop, dfs_event) ~ aGVHD + age + disgroup +
+                   sex_mismatch + cmv_mismatch + donorage + 
+                    mtx , data = td_data)
+summary(cox_dfs)
+
+
+#Check PH Assumptions
+residuals(cox_dfs, type = "martingale")
+
+#Looks like mtx violates PH 
+schoenfeld_residual <- cox.zph(cox_dfs)
+
+schoenfeld_residual
+
+
+#Residual plots
+schoenresid <- residuals(cox_dfs,type="scaledsch")
+times <- as.numeric(rownames(schoenresid))
+plot(times,schoenresid[,1],xlab="time",ylab="scaled Schoenfeld residuals",ylim=c(-5,15))
+schoenresid.loess = loess(schoenresid[,1]~times,degree=1)
+lines(unique(times),predict(schoenresid.loess,unique(times)),col=2,lwd=1.5)
+abline(h=0,lty=3)
+
+
+# Plot aGVHD and MTX violates the PH assumption 
+#aGVHD
+z <- cox.zph(cox_dfs) # default transform is rank(time)print(z)
+print(z)
+
+plot(z, var = "aGVHD")    # look for a non-flat trend in scaled Schoenfeld residuals
+abline(h = 0, col = "red")
+
+#Mtx
+
+plot(z, var = "mtx")    # look for a non-flat trend in scaled Schoenfeld residuals
+abline(h = 0, col = "red")
+
+
+# For eealing with the PH violation we must fit an Extended Cox Model
+
+
+#--Extended Cox model--- 
+#Log-time interaction
+
+cox_dfs_tv_log <- coxph(
+  Surv(tstart, tstop, dfs_event) ~ 
+    aGVHD + tt(aGVHD) + age + disgroup + sex_mismatch + cmv_mismatch + donorage +
+    mtx + tt(mtx),
+  data = td_data,
+  tt = function(x, t, ...) x * log(t)
+)
+
+
+summary(cox_dfs_tv_log)$coef
+
+
+
+### Centering the log(time) of mtx for better interpretation
+
+
+mean_log_t <- with(td_data, mean(log(tstop), na.rm = TRUE))
+
+cox_dfs_tv_log_centered <- coxph(
+  Surv(tstart, tstop, dfs_event) ~
+    aGVHD + tt(aGVHD) +  age + factor(disgroup) + sex_mismatch + cmv_mismatch + donorage +
+    mtx + tt(mtx),
+  data = td_data,
+  tt = function(x, t, ...) x * (log(t) - mean_log_t)
+)
+summary(cox_dfs_tv_log_centered)$coef # Now the mtx coefficient gives the HR at the average follow‑up time, which is often easier to communicate
+
+
+#Print nice table
+
+dfs_tt_center <- tbl_regression(
+  cox_dfs_tv_log_centered,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+
+
+# Visualize HR for aGVHD
+
+
+co <- coef(cox_dfs_tv_log)
+b_aGVHD    <- co["aGVHD"]
+b_aGVHD_tt <- co["tt(aGVHD)"]
+
+times <- seq(30, 720, by = 30)
+HR_aGVHD <- exp(b_aGVHD + b_aGVHD_tt * log(times))
+
+plot(times, HR_aGVHD, type = "l", lwd = 2, col = "black",
+     xlab = "Time (days)", ylab = "HR for aGVHD(t)")
+abline(h = 1, col = "red", lty = 2)
+
+
+# Visualize HR for mtx
+
+
+co <- coef(cox_dfs_tv_log)
+b_mtx    <- co["mtx"]
+b_mtx_tt <- co["tt(mtx)"]
+
+times <- seq(30, 720, by = 30)
+HR_mtx <- exp(b_mtx + b_mtx_tt * log(times))
+
+plot(times, HR_mtx, type = "l", lwd = 2, col = "black",
+     xlab = "Time (days)", ylab = "HR for mtx(t)")
+abline(h = 1, col = "red", lty = 2)
+
+
+#HR for aGVHD at clinically meaningful times
+# Present in a table
+
+times <- c(30, 90, 180, 365)
+HR_aGVHD <- exp(b_aGVHD + b_aGVHD_tt * log(times))
+HR_aGVHD 
+data.frame(times = times, HR = HR_aGVHD)
+
+
+#HR for mtx at clinically meaningful times
+# Present in a table
+times <- c(30, 90, 180, 365)
+b_mtx    
+b_mtx_tt 
+HR_mtx <- exp(b_mtx + b_mtx_tt * log(times))
+data.frame(time = times, HR = HR_mtx)
+
+
+# 90% CI
+
+coefs_center <- coef(cox_dfs_tv_log_centered)
+vcov_mat_center <- vcov(cox_dfs_tv_log_centered)
+
+
+
+b_aGVHD_center    <- coefs_center["aGVHD"]
+b_aGVHD_tt_center <- coefs_center["tt(aGVHD)"]
+
+
+#90% CI for aGVHD
+
+
+# linear predictor at each time
+lp_aGVHD <- b_aGVHD_center  + b_aGVHD_tt_center * log(times)
+
+# variance of linear predictor
+var_lp_aGVHD <- vcov_mat_center["aGVHD","aGVHD"] + 
+  (log(times)^2) * vcov_mat_center["tt(aGVHD)","tt(aGVHD)"] +
+  2 * log(times) * vcov_mat_center["aGVHD","tt(aGVHD)"]
+
+# 90% CI: z = qnorm(0.95) ~ 1.6449
+z <- qnorm(0.95)
+lower_aGVHD_center <- exp(lp_aGVHD - z * sqrt(var_lp_aGVHD))
+upper_aGVHD_center <- exp(lp_aGVHD + z * sqrt(var_lp_aGVHD))
+
+HR_aGVHD_center <- exp(lp_aGVHD)
+
+table2_DFS <- data.frame(
+  time = times,
+  HR = HR_aGVHD,
+  lower_90CI = lower_aGVHD_center,
+  upper_90CI = upper_aGVHD_center
+)
+
+
+#nice table
+
+table2_DFS %>%
+  gt() %>%
+  fmt_number(columns = c(HR, lower_90CI, upper_90CI), decimals = 2) %>%
+  cols_label(
+    time = "Time (days)",
+    HR = "Hazard Ratio",
+    lower_90CI = "Lower 90% CI",
+    upper_90CI = "Upper 90% CI"
+  ) %>%
+  tab_header(
+    title = "Hazard Ratios for aGVHD at Selected Time Points"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_text(weight = "bold")
+    ),
+    locations = cells_column_labels(columns = everything())
+  )
+
+
+
+#----------------Directive 4 PART B AND C----------------
+# Is itassociated with a decreased risk of relapse? In view of this, do you consider aGVHD as an important
+# prognostic event?
+
+
+dat <- data %>% 
+  select(age, disgroup_f, sex_mismatch, cmv_mismatch , donorage,
+            mtx, tdfs, deltar, deltadfs, ta, deltaa, deltas ) %>%
+  mutate(id=row_number())
+
+dat <- tmerge(dat, dat, id=id, endpt=event(tdfs,deltadfs))
+dat <- tmerge(dat, dat, id=id, agvhd=tdc(ta, deltaa,init=0))
+
+
+
+
+dat <- dat %>%
+  mutate(cause = case_when(
+    # death
+    deltas == 1 & deltar == 0 ~ 1,
+    # relapse 
+    deltar == 1 ~ 2,
+    deltar == 0 & deltas == 0 ~ 0
+  ),
+  cause=as.integer(cause))
+
+
+# Association relapse
+odds_mod_relapse <- prop.odds.subdist(Event(tdfs, cause) ~agvhd + age +
+                  disgroup_f + sex_mismatch + cmv_mismatch +
+                  donorage +  mtx,
+                  cause = 2,
+                  data=dat)
+
+summary(odds_mod_relapse)
+
+
+
+
+# Associtaion death
+
+odds_mod_death <- prop.odds.subdist(Event(tdfs, cause) ~agvhd + age +
+                  disgroup_f + sex_mismatch + cmv_mismatch +
+                  donorage +  mtx,
+                  cause = 1,
+                  data=dat)
+
+summary(odds_mod_death)
+
+
+
+# OR and 90% CI
+
+#relapse
+
+
+coef_table <- data.frame(
+  var = c("agvhd", "age", "disgroup_fAML_Low", "disgroup_fAML_High",
+          "sex_MF", "sex_FM", 
+          "cmv_NtoP", "cmv_PtoN", 
+          "donorage", "mtx"),
+  
+  beta = c(-0.46500, -0.00750, -1.11000, 0.65000,
+           0.26600, -0.80600,
+           0.52400, 0.14600,
+           -0.00461, 0.05820),
+  
+  robust_se = c(0.5420, 0.0287, 0.5020, 0.4640,
+                0.4120, 0.5490,
+                0.4410, 0.5660,
+                0.0309, 0.3920),
+  
+  p_val = c(0.391, 0.794, 0.027, 0.161,
+            0.520, 0.142,
+            0.234, 0.797,
+            0.881, 0.882)
+)
+
+
+z90 <- 1.645  # for 90% CI
+
+coef_table$HR <- exp(coef_table$beta)
+
+coef_table$lower90 <- exp(coef_table$beta - z90 * coef_table$robust_se)
+coef_table$upper90 <- exp(coef_table$beta + z90 * coef_table$robust_se)
+
+# Nicely formatted results
+library(dplyr)
+
+results <- coef_table %>%
+  mutate(
+    HR = round(HR, 3),
+    lower90 = round(lower90, 3),
+    upper90 = round(upper90, 3),
+    p_val = round(p_val, 3)
+  )
+
+print(results)
+
+
+#death
+
+
+coef_table_death <- data.frame(
+  var = c("agvhd", "age", "disgroup_fAML_Low", "disgroup_fAML_High",
+          "sex_MF", "sex_FM",
+          "cmv_NtoP", "cmv_PtoN",
+          "donorage", "mtx"),
+  
+  beta = c(0.4570, 0.0112, 0.3400, 0.3340,
+           0.1440, 0.8850,
+           -0.3860, 0.5470,
+           0.0169, 0.6760),
+  
+  robust_se = c(0.3950, 0.0304, 0.4890, 0.5310,
+                0.4760, 0.4240,
+                0.4790, 0.4240,
+                0.0339, 0.4320),
+  
+  p_val = c(0.2480, 0.7120, 0.4870, 0.5290,
+            0.7620, 0.0367,
+            0.4200, 0.1970,
+            0.6190, 0.1180)
+)
+
+
+z90 <- 1.645  # two-sided 90% CI
+
+coef_table_death$HR <- exp(coef_table_death$beta)
+
+coef_table_death$lower90 <- exp(coef_table_death$beta - z90 * coef_table_death$robust_se)
+coef_table_death$upper90 <- exp(coef_table_death$beta + z90 * coef_table_death$robust_se)
+
+
+
+
+results_death <- coef_table_death %>%
+  mutate(
+    HR = round(HR, 3),
+    lower90 = round(lower90, 3),
+    upper90 = round(upper90, 3),
+    p_val = round(p_val, 3)
+  )
+
+print(results_death)
+
+
+
+
+
+
+#### DIRECTIVE 5 ####
+
+```
+
+# Directive 5 
+
+## Multivariable Model
+
+Coefficients not reported in the text; sparse data caused issues with stability, as demonstrated by the huge HR's for certain variables.
+
+```{r}
+
+aGVHD_patients <- data %>%
+  filter(deltaa == 1 & tdfs > ta) %>%
+  mutate(disgroup = case_when(
+           disgroup == 1 ~ "Acute Lymphoblastic Leukemia",
+           disgroup == 2 ~ "Acute Myelocytic Leukemia (Low Risk)",
+           disgroup == 3 ~ "Acute Myelocytic Leukemia (High Risk)"),
+         disgroup=factor(disgroup, 
+                         levels =c("Acute Lymphoblastic Leukemia",
+                                   "Acute Myelocytic Leukemia (Low Risk)",
+                                    "Acute Myelocytic Leukemia (High Risk)")))
+
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    age + factor(disgroup) + sex_mismatch + cmv_mismatch + donorage +
+    mtx, data=aGVHD_patients) 
+
+
+tbl_regression(
+  model,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+
+```
+
+
+### Diagnostics 
+
+```{r}
+
+resids <- cox.zph(model) 
+plot(resids)
+
+```
+
+
+## Univariable Associations
+
+```{r}
+#---------
+# age 
+#---------
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    age, data=aGVHD_patients) 
+cox.zph(model)
+plot(cox.zph(model))
+
+tab_age <- tbl_regression(
+  model,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+#---------
+# donorage 
+#---------
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    donorage, data=aGVHD_patients) 
+cox.zph(model)
+plot(cox.zph(model))
+
+tab_donorage <- tbl_regression(
+  model,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+#--------------
+# sex mismatch 
+#--------------
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    sex_mismatch, data=aGVHD_patients) 
+cox.zph(model)
+plot(cox.zph(model))
+tab_sex_mismatch <- tbl_regression(
+  model,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+#--------------
+# cmv mismatch 
+#--------------
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    cmv_mismatch, data=aGVHD_patients) 
+cox.zph(model)
+plot(cox.zph(model))
+
+# not significant, so not reported 
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    negpos +posneg + tt(posneg), 
+   tt=function(x, t, ...) x * log(t),
+   data= aGVHD_patients %>%
+    mutate(negpos = ifelse(cmv_mismatch=="CMV Negative->CMV Positive",
+                           1, 0),
+           posneg = ifelse(cmv_mismatch=="CMV Positive->CMV Negative",
+                            1, 0))) 
+
+# not significant, so not reported 
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    negpos +posneg + tt(negpos), 
+   tt=function(x, t, ...) x * log(t),
+   data= aGVHD_patients %>%
+    mutate(negpos = ifelse(cmv_mismatch=="CMV Negative->CMV Positive",
+                           1, 0),
+           posneg = ifelse(cmv_mismatch=="CMV Positive->CMV Negative",
+                            1, 0))) 
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    cmv_mismatch, data=aGVHD_patients) 
+
+tab_cmv_mismatch <- tbl_regression(
+  model,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+#--------------
+# mtx 
+#--------------
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    mtx, data=aGVHD_patients) 
+
+cox.zph(model)
+plot(cox.zph(model))
+
+# not significant, so not reported 
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    mtx + tt(mtx), data=aGVHD_patients,
+   tt=function(x, t, ...) x * log(t)) 
+
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    mtx, data=aGVHD_patients) 
+
+tab_mtx <- tbl_regression(
+  model,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+#--------------
+# disgroup 
+#--------------
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    disgroup, data=aGVHD_patients) 
+
+cox.zph(model)
+plot(cox.zph(model))
+
+# not significant, so not reported 
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    is_low +is_high + tt(is_high), 
+   tt=function(x, t, ...) x * log(t),
+   data= aGVHD_patients %>%
+    mutate(is_low = ifelse(disgroup=="Acute Myelocytic Leukemia (Low Risk)",
+                           1, 0),
+           is_high = ifelse(disgroup=="Acute Myelocytic Leukemia (High Risk)",
+                            1, 0))) 
+# not significant, so not reported 
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    is_low +is_high + tt(is_low), 
+   tt=function(x, t, ...) x * log(t),
+   data= aGVHD_patients %>%
+    mutate(is_low = ifelse(disgroup=="Acute Myelocytic Leukemia (Low Risk)",
+                           1, 0),
+           is_high = ifelse(disgroup=="Acute Myelocytic Leukemia (High Risk)",
+                            1, 0))) 
+
+model <- coxph( Surv(ta, tdfs, deltadfs) ~
+    disgroup, data=aGVHD_patients) 
+
+tab_disgroup <- tbl_regression(
+  model,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+
+model_summary_list <- list( tab_age, tab_donorage, tab_disgroup,
+                            tab_sex_mismatch,
+                            tab_cmv_mismatch,
+                            tab_mtx)
+
+tbl_stack(model_summary_list, 
+          group_header=paste0('Model: ', c("Age", "Donor Age", "Disease Group",
+                                           "Sex Mismatch", "CMV Mismatch", 
+                                           "Prophylactic Use of Methotrexate"))) %>%
+  as_gt() %>%
+  gt::tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups()
+  )
+
+
+```
+
+
+```{r,eval=TRUE, error=TRUE}
+
+#Among the patients who develop aGVHD, are any of the measured baseline factors associated with
+#differences in disease-free survival?
+
+# Subset patients with aGVHD
+aGVHD_patients <- data %>%
+  filter(deltaa == 1, is.finite(ta), is.finite(tdfs), tdfs > ta)
+
+
+#Time-varying
+
+td_aGVHD_data <- tmerge(
+  data1 = aGVHD_patients, data2 = aGVHD_patients, id = id,
+  tstart = 0, tstop = tdfs,
+  dfs_event     = event(tdfs, deltadfs),  #  relapse or death (combined)
+  aGVHD         = tdc(ta)                 # time-dependent
+)
+
+
+### Centering the log(time) for better interpretation
+
+
+mean_log_t_aGVHD <- with(td_aGVHD_data, mean(log(tstop), na.rm = TRUE))
+
+cox_aGVHD_tv_log_centered <- coxph(
+  Surv(tstart, tstop, dfs_event) ~
+    age + factor(disgroup) + sex_mismatch + cmv_mismatch + donorage +
+    mtx + tt(mtx),
+  data = td_aGVHD_data,
+  tt = function(x, t, ...) x * log(t))
+
+
+                              
+summary(cox_aGVHD_tv_log_centered)$coef 
+
+
+
+aGVHDsub_tt_center <- tbl_regression(
+  cox_aGVHD_tv_log_centered,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+
+
+
+
+
+## Calculate 90% CI and relevant time points
+
+sum_cox2 <- summary(cox_aGVHD_tv_log_centered)
+
+# Extract
+coefs2 <- sum_cox2$coefficients[, "coef"]
+se2    <- sum_cox2$coefficients[, "se(coef)"]
+pvals2 <- sum_cox2$coefficients[, "Pr(>|z|)"]
+
+# 90% CI
+alpha <- 0.10
+z_val <- qnorm(1 - alpha/2)
+
+CI90_lower <- coefs2 - z_val * se2
+CI90_upper <- coefs2 + z_val * se2
+
+# coef
+coef_CI90_p <- data.frame(
+  Variable = names(coefs2),
+  Coefficient = coefs2,
+  HR = exp(coefs2),
+  Lower_90CI = exp(CI90_lower),
+  Upper_90CI = exp(CI90_upper),
+  p_value = pvals2
+)
+
+coef_CI90_p
+
+
+#nice table
+
+
+coef_CI90_p %>%
+  gt() %>%
+  fmt_number(columns = c(HR, Lower_90CI, Upper_90CI), decimals = 2) %>%
+  fmt_number(columns = p_value, decimals = 3) %>%
+  tab_header(
+    title = "Extended Cox Model Coefficients with 90% CI and p-values (aGVHD subset)"
+  )
+
+
+
+
+
+dfs_tt_center <- tbl_regression(
+  cox_dfs_tv_log_centered,
+  exponentiate = TRUE,      # shows HR instead of coef
+  conf.level = 0.90         # 90% CI
+)
+```

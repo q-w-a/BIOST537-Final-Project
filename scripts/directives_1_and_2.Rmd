@@ -1,0 +1,278 @@
+---
+title: "BIOST 537 group project"
+author: "Hyunhae Lee"
+date: "2025-11-15"
+output:
+  html_document:
+    toc: true
+    toc_depth: 5
+    toc_float: true
+    code_folding: hide
+    fig_height: 8
+    fig_width: 8
+  word_document:
+    toc: true
+    toc_depth: '5'
+  pdf_document:
+    toc: true
+    toc_depth: '5'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(flexsurv)
+library(numDeriv)
+library(survival)
+library(foreign)
+library(msm)
+library(psych)
+library(dplyr)
+
+library(ggplot2)
+library(tidyverse)
+library(data.table)
+library(gtsummary)
+library(tableone)
+library(gt)
+```
+
+###Variable Preparation
+
+```{r}
+bmt <- read.csv("bmt.csv") %>%
+  mutate(across(c(male, cmv, donorcmv, disgroup, donormale,
+                  fab, mtx, hospital),as_factor)) %>%
+  mutate(male = ifelse(male==1, "Male", "Female"),
+         male = factor(male, levels=c("Female", "Male")),
+         donormale = ifelse(donormale==1, "Male", "Female"),
+         donormale = factor(donormale, levels=c("Female", "Male")),
+         cmv = ifelse(cmv==1, "CMV Positive", "CMV Negative"),
+         cmv = factor(cmv, 
+                      levels=c("CMV Negative", "CMV Positive")),
+         donorcmv = ifelse(donorcmv==1, "CMV Positive", "CMV Negative"),
+         donorcmv = factor(donorcmv, 
+                           levels=c("CMV Negative", "CMV Positive")),
+         disgroup = case_when(
+           disgroup == 1 ~ "ALL",
+           disgroup == 2 ~ "AML (Low Risk)",
+           disgroup == 3 ~ "AML (High Risk)"),
+         disgroup=factor(disgroup, 
+                         levels =c("ALL",
+                                   "AML (Low Risk)",
+                                  "AML (High Risk)")),
+         fab=ifelse(fab==1, "FAB grade 4 or 5 and AML", "Other"),
+         fab=factor(fab, levels =c("Other",
+                                   "FAB grade 4 or 5 and AML")),
+         mtx = ifelse(mtx==1, "Prophylactic Use of Methotrexate",
+                       "No Prophylactic Use of Methotrexate"),
+         mtx=factor(mtx, levels=c("No Prophylactic Use of Methotrexate",
+                                  "Prophylactic Use of Methotrexate")),
+         hospital = case_when(
+           hospital == 1 ~ "The Ohio State University",
+           hospital == 2 ~ "Alfred (Melbourne, Austrailia)",
+           hospital == 3 ~ "St. Vincent (Sydney, Australia)",
+           hospital == 4 ~ "AHahnemann (Philadelphia, PA)"))
+
+s.dfs <- with(bmt, Surv(time = tdfs, event = deltadfs))
+```
+
+###Directive 1
+Provide an estimate of disease-free survival time for patients enrolled in this study. 
+What are the main characteristics of this summary?
+
+(1) Median survival time (km estimator)
+- Measure of central tendency of the distribution 
+- Defined even when the right tail of the distribution is unestimable, unlike the mean
+- Defined to be the time at which $\inf\{ t: S(t)\leq 0.5\}
+- For a continuous distribution, this is the time point at which $S(t) = 1/2$.
+- Less sensitive to outliers than the mean 
+- Need to assume noninformative censoring for KM estimator – explicitly state this assumption and what it means in this context 
+
+(2) Add the plot of the KM estimator (with CI bands) 
+
+```{r}
+#1
+fit.dfs <- survfit(s.dfs ~ 1,
+                   conf.type = "log-log",
+                   conf.int  = 0.90, data=bmt)
+
+summary(fit.dfs)
+print(fit.dfs)
+
+library(survminer)
+
+km_plot <- ggsurvplot(fit.dfs, legend.title="Kaplan-Meier estimate of Disease-Free Survival",
+           conf.int=TRUE, censor = FALSE,
+           palette = c("#9370DB"),  
+           conf.int.alpha = 0.2,
+           pval=T,surv.median.line="hv")
+
+
+ggsave("km_directive1.png", plot = km_plot$plot, width = 6, height = 4, dpi = 300)
+```
+
+(3) We can later think about adding / discussing the restricted mean survival time 
+
+```{r}
+source("getmedianres.R")
+getmedianres(survobj=s.dfs,times=481,confint=TRUE)
+
+cat("The point at which half of them experience the event does not appear in the data\n")
+```
+
+##Directive 2
+(1) How do patients in different ***disease groups*** compare to each other in baseline measurements and 
+(2) how do patients in different ***FAB classifications*** compare to each other with respect to other available baseline measurements?
+
+### Variables
+Baseline measurements of interest:
+ patient age and sex, donor age and sex, patient and donor cytomegalovirus (CMV) immune status, the wait time from diagnosis to transplantation, disease group, French-American-British (FAB) classification based on standard morphological criteria, and prophylactic use of methotrexate to prevent aGVHD
+
+**Based on**
+>> (1) disgroup
+    1 = ALL ALL refers to ”acute lymphoblastic leukemia”
+    2 = AML Low Risk AML refers to ”acute myelocytic leukemia
+    3 = AML High Risk
+  
+>> (2) patient CMV status 
+    1 = patient is CMV positive 
+    0 = patient is CMV negative
+
+**characteristics**
+*continuous*
+>> age: patient age (in years)
+  donorage: age of donor (in years)
+  waittime: waiting time until transplant (in days)
+  
+*categorical*
+>> - male: indicator of patient being male 
+  1 = patient is male 0 = patient is female
+  - cmv: patient CMV status 
+  1 = patient is CMV positive 0 = patient is CMV negative
+  - donormale: indicator of donor being male 
+  1 = donor is male 
+  0 = donor if female
+  - donorcmv: donor CMV status 
+  1 = donor is CMV positive 
+  0 = donor is CMV negative
+  - fab: disease subtype 
+  1 = FAB grade 4 or 5 and AML 0 = otherwise
+  - hospital: recruitment center 
+  1 = The Ohio State University (Columbus, OH) 
+  2 = Alfred (Melbourne, Austrailia
+  3 = St. Vincent (Sydney, Australia) 
+  4 = Hahnemann (Philadelphia, PA)
+  - mtx: prophylactic use of methotrexate 
+  1 = yes 0 = no
+
+###Summary: Continuous variables
+```{r}
+names(bmt)
+
+bmt <- bmt %>%
+  mutate(sex_mismatch = paste0(donormale, "->", male),
+         sex_mismatch = ifelse(sex_mismatch == "Male->Male",
+                               "Match", sex_mismatch),
+         sex_mismatch = ifelse(sex_mismatch == "Female->Female",
+                               "Match", sex_mismatch),
+         sex_mismatch = factor(
+           sex_mismatch, 
+           levels=c("Match", "Male->Female","Female->Male")),
+         cmv_mismatch = paste0(donorcmv, "->", cmv),
+         cmv_mismatch = factor(
+           cmv_mismatch, 
+           levels=c("CMV Negative->CMV Negative",
+                    "CMV Negative->CMV Positive",
+                    "CMV Positive->CMV Negative",
+                    "CMV Positive->CMV Positive")))
+
+bmt %>% 
+  select("age", "donorage", "waittime") %>%   
+  describe() %>%                 
+  select(skew)
+
+vars <- bmt %>% select("age", "male", "cmv", "donorage",
+             "donormale", "donorcmv", "waittime", "fab",
+             "hospital", "mtx", "disgroup", "sex_mismatch", "cmv_mismatch", "deltaa",
+             "deltas", "deltar")
+
+vars %>%
+  tbl_summary() %>%
+  as_gt() %>%  
+  opt_table_font(
+    font = list("Times New Roman")) %>%
+  tab_options(
+    table.font.size = px(10),    
+    heading.title.font.size = px(10))
+```
+
+###Boxplot: continuous variables
+```{r}
+# Disease group - Wait time
+p <- ggplot(bmt, aes(x = disgroup, y = waittime, fill=disgroup)) +
+  geom_boxplot() +  scale_fill_manual(values = c("mediumpurple1",
+                                                 "mediumpurple4",
+                                                 "mediumpurple3")) +
+  labs(x = "Disease Group", 
+       y = "Wait time (days)", fill = "Disease Group")
+p
+
+# ggsave("disgroup_waittime.png", plot = p, width = 6, height = 4, dpi = 300)
+```
+
+## Disease group
+
+```{r}
+vars %>%
+  tbl_summary(
+    by = disgroup,
+    statistic = list(
+      all_continuous() & !waittime ~ "{mean} ({sd})",
+      waittime ~ "{median} ({p25}, {p75})",
+      all_categorical() ~ "{n} ({p}%)"),
+    missing_text = "Missing") %>%
+  add_p(
+    test = list(
+      all_continuous() & !waittime ~ "oneway.test", 
+      waittime ~ "kruskal.test")) %>%
+  as_gt() %>%  
+  opt_table_font(
+    font = list("Times New Roman")) %>%
+  tab_options(
+    table.font.size = px(10),
+    heading.title.font.size = px(10))
+
+```
+
+
+```{r}
+# Fab - Wait time
+p2 <- ggplot(bmt, aes(x = fab, y = waittime, fill=fab)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("mediumpurple3", "mediumpurple4")) +
+  labs(x = "FAB classification", 
+       y = "Wait time (days)", fill = "Disease Group")
+
+p2
+
+# ggsave("fab_waittime.png", plot = p2, width = 6, height = 4, dpi = 300)
+
+vars %>%
+  tbl_summary(
+    by = fab,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      waittime ~ "{median} ({p25}, {p75})",
+      all_categorical() ~ "{n} ({p}%)"), missing_text = "Missing" ) %>%
+  add_p(test = list(
+      all_continuous() & !waittime ~ "oneway.test", 
+      waittime ~ "kruskal.test")) %>%
+  as_gt() %>% 
+  opt_table_font(
+    font = list("Times New Roman")) %>%
+  tab_options(
+    table.font.size = px(10),     
+    heading.title.font.size = px(10))
+```
+
