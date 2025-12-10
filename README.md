@@ -12,7 +12,8 @@ To run the code in the scripts directory, we assume `bmt.csv` is in a `data` dir
 ## File Descriptions: 
 
 * `scripts` directory holds all code
-  * `directives_3_6_7.Rmd` - all analyses for directives 3, 6, and 7 
-* `output` holds knitted results of code
-  * `directives_3_6_7.html` - output from `directives_3_6_7.Rmd` 
+  * `directives_1_and_2.Rmd` - all analyses for directives 1 and 2 
+  * `directives_3_6_7.Rmd` - all analyses for directives 3, 6, and 7
+  * `directives_4_and_5.Rmd` - all analyses for directives 3, 6, and 7 
+* `output` holds knitted results of each `.Rmd` file in the `scripts` directory 
 
